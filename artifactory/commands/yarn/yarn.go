@@ -163,15 +163,22 @@ func (yc *YarnCommand) validateSupportedCommand() error {
 			}
 		}
 		// Do not allow upgrade to version 4
-		if arg == "set" && len(yc.yarnArgs) > index {
-			setCommand := yc.yarnArgs[index+1]
-			if setCommand == "version" && len(yc.yarnArgs) > index+2 {
-				versionCommand := yc.yarnArgs[index+2]
-				err := yarn.IsVersionSupported(versionCommand)
-				if err != nil {
-					return err
-				}
-				return nil
+		err := validateYarnV4Support(arg, yc.yarnArgs, index)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateYarnV4Support(arg string, yarnArgs []string, index int) error {
+	if arg == "set" && len(yarnArgs) > index {
+		setCommand := yarnArgs[index+1]
+		if setCommand == "version" && len(yarnArgs) > index+2 {
+			versionCommand := yarnArgs[index+2]
+			err := yarn.IsVersionSupported(versionCommand)
+			if err != nil {
+				return err
 			}
 		}
 	}
@@ -369,7 +376,7 @@ func updateScopeRegistries(execPath, registry, npmAuthIdent, npmAuthToken string
 	if err != nil {
 		return err
 	}
-	// If npmScopesStr is "undefined" it means that the npmScopes configuration does not exist.
+	// If npmScopesStr is "undefined" it means that the npmScopes configuration does not exist in case using yarn version 4.
 	if npmScopesStr == "undefined" {
 		return nil
 	}
