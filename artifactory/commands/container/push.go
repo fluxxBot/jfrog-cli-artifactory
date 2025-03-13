@@ -99,7 +99,8 @@ func (pc *PushCommand) Run() error {
 	if err != nil {
 		return err
 	}
-	repo, err := pc.GetRepo()
+	//repo, err := pc.GetRepo()
+	repo, err := pc.image.GetDockerRepo()
 	if err != nil {
 		return err
 	}
