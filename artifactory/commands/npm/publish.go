@@ -7,7 +7,8 @@ import (
 	"fmt"
 	"github.com/jfrog/build-info-go/build"
 	biutils "github.com/jfrog/build-info-go/build/utils"
-	ioutils "github.com/jfrog/gofrog/io"
+	buildinfo "github.com/jfrog/build-info-go/entities"
+	gofrogcmd "github.com/jfrog/gofrog/io"
 	"github.com/jfrog/gofrog/version"
 	commandsutils "github.com/jfrog/jfrog-cli-core/v2/artifactory/commands/utils"
 	"github.com/jfrog/jfrog-cli-core/v2/artifactory/utils"
@@ -58,6 +59,7 @@ type NpmPublishCommand struct {
 	result          *commandsutils.Result
 	detailedSummary bool
 	npmVersion      *version.Version
+	publishDetails  []*specutils.ArtifactDetails
 	*NpmPublishCommandArgs
 }
 
@@ -182,7 +184,7 @@ func (npc *NpmPublishCommand) Run() (err error) {
 		}
 	}
 
-	if err = npc.publish(); err != nil {
+	if err = npc.npmPublish(); err != nil {
 		if npc.tarballProvided {
 			return err
 		}
@@ -208,17 +210,30 @@ func (npc *NpmPublishCommand) Run() (err error) {
 	if npc.buildConfiguration.GetModule() != "" {
 		npmModule.SetName(npc.buildConfiguration.GetModule())
 	}
-	buildArtifacts, err := specutils.ConvertArtifactsDetailsToBuildInfoArtifacts(npc.artifactsDetailsReader)
-	if err != nil {
-		return err
+
+	// build add
+	var errorForBuildInfo error
+	var buildArtifacts []buildinfo.Artifact
+	for _, artifactDetails := range npc.publishDetails {
+		artifact, err := artifactDetails.ToBuildInfoArtifact()
+		if err != nil {
+			log.Error("Error occure for :", artifactDetails)
+			errors.Join(errorForBuildInfo, err)
+		}
+		buildArtifacts = append(buildArtifacts, artifact)
 	}
-	defer ioutils.Close(npc.artifactsDetailsReader, &err)
+
+	//buildArtifacts, err := specutils.ConvertArtifactsDetailsToBuildInfoArtifacts(npc.artifactsDetailsReader)
+	//if err != nil {
+	//	return err
+	//}
+	//defer ioutils.Close(npc.artifactsDetailsReader, &err)
 	err = npmModule.AddArtifacts(buildArtifacts...)
 	if err != nil {
 		return errorutils.CheckError(err)
 	}
 
-	log.Info("npm publish finished successfully.")
+	log.Info("npm publish finished successfully after collecting.")
 	return nil
 }
 
@@ -495,3 +510,100 @@ func deleteCreatedTarball(packedFilesPath []string) error {
 	}
 	return nil
 }
+
+func (npc *NpmPublishCommand) npmPublish() error {
+	var err error = nil
+
+	for _, packedFilePath := range npc.packedFilePaths {
+
+		if err = npc.readPackageInfoFromTarball(packedFilePath); err != nil {
+			return err
+		}
+		target := fmt.Sprintf("%s/%s", npc.repo, npc.packageInfo.GetDeployPath())
+
+		log.Warn("Target = ", target)
+
+		// If requested, perform a Xray binary scan before deployment. If a FailBuildError is returned, skip the deployment.
+		if npc.xrayScan {
+			errors.Join(err, performXrayScan(packedFilePath, npc.repo, npc.serverDetails, npc.scanOutputFormat))
+		}
+		errors.Join(err, npc.publishPackage(npc.executablePath, packedFilePath, npc.serverDetails, target))
+	}
+	return err
+}
+
+func performXrayScan(filePath string, repo string, serverDetails *config.ServerDetails, scanOutputFormat format.OutputFormat) error {
+	fileSpec := spec.NewBuilder().
+		Pattern(filePath).
+		Target(repo + "/").
+		BuildSpec()
+	if err := commandsutils.ConditionalUploadScanFunc(serverDetails, fileSpec, 1, scanOutputFormat); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (npc *NpmPublishCommand) publishPackage(executablePath, filePath string, serverDetails *config.ServerDetails, target string) error {
+	npmCommand := gofrogcmd.NewCommand(executablePath, "publish", []string{filePath})
+	log.Warn("Running npm: ", executablePath, " npm publish ", filePath)
+	output, cmdError, _, err := gofrogcmd.RunCmdWithOutputParser(npmCommand, true)
+	if err != nil {
+		log.Error("Error occurred while running npm publish: ", output, cmdError, err)
+		return err
+	}
+	servicesManager, err := utils.CreateServiceManager(serverDetails, -1, 0, false)
+	if err != nil {
+		return err
+	}
+	fileInfo, err := servicesManager.FileInfo(target)
+	log.Warn("The file info: ", fileInfo)
+	if err != nil {
+		return err
+	}
+	artifactDetails := &specutils.ArtifactDetails{
+		ArtifactoryPath: fileInfo.Path,
+		Checksums: buildinfo.Checksum{
+			Sha1:   fileInfo.Checksums.Sha1,
+			Md5:    fileInfo.Checksums.Md5,
+			Sha256: fileInfo.Checksums.Sha256,
+		},
+	}
+	npc.publishDetails = append(npc.publishDetails, artifactDetails)
+	return nil
+}
+
+//func (npc *NpmPublishCommand) collectBuildInfoFromPublish(filepath string, target string, serverDetails *config.ServerDetails) error {
+//	servicesManager, err := utils.CreateServiceManager(serverDetails, -1, 0, false)
+//	if err != nil {
+//		return err
+//	}
+//	up := services.NewUploadParams()
+//	var totalFailed int
+//	up.CommonParams = &specutils.CommonParams{Pattern: filepath, Target: target}
+//	if npc.collectBuildInfo || npc.detailedSummary {
+//		if npc.collectBuildInfo {
+//			buildName, err := npc.buildConfiguration.GetBuildName()
+//			if err != nil {
+//				return err
+//			}
+//			buildNumber, err := npc.buildConfiguration.GetBuildNumber()
+//			if err != nil {
+//				return err
+//			}
+//			err = buildUtils.SaveBuildGeneralDetails(buildName, buildNumber, npc.buildConfiguration.GetProject())
+//			if err != nil {
+//				return err
+//			}
+//			up.BuildProps, err = buildUtils.CreateBuildProperties(buildName, buildNumber, npc.buildConfiguration.GetProject())
+//			if err != nil {
+//				return err
+//			}
+//		}
+//		summary, err := servicesManager.UploadFilesWithSummary(artifactory.UploadServiceOptions{}, up)
+//		if err != nil {
+//			return err
+//		}
+//		totalFailed = summary.TotalFailed
+//	}
+//	return nil
+//}
