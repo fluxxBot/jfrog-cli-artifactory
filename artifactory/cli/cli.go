@@ -99,7 +99,7 @@ func GetCommands() []components.Command {
 			Aliases:     []string{"dl"},
 			Description: download.GetDescription(),
 			Arguments:   download.GetArguments(),
-			Action:      downloadCmd,
+			Action:      DownloadCmd,
 			Category:    filesCategory,
 		},
 		{
@@ -126,7 +126,7 @@ func GetCommands() []components.Command {
 			Aliases:     []string{"del"},
 			Description: delete.GetDescription(),
 			Arguments:   delete.GetArguments(),
-			Action:      deleteCmd,
+			Action:      DeleteCmd,
 			Category:    filesCategory,
 		},
 		{
@@ -663,7 +663,7 @@ func prepareDownloadCommand(c *components.Context) (*spec.SpecFiles, error) {
 	return downloadSpec, nil
 }
 
-func downloadCmd(c *components.Context) error {
+func DownloadCmd(c *components.Context) error {
 	downloadSpec, err := prepareDownloadCommand(c)
 	if err != nil {
 		return err
@@ -928,7 +928,7 @@ func prepareDeleteCommand(c *components.Context) (*spec.SpecFiles, error) {
 	return deleteSpec, nil
 }
 
-func deleteCmd(c *components.Context) error {
+func DeleteCmd(c *components.Context) error {
 	deleteSpec, err := prepareDeleteCommand(c)
 	if err != nil {
 		return err

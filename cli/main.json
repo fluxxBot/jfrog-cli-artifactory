@@ -1,0 +1,17 @@
+[
+  {
+    "name": "mvnpublish",
+    "usage": "publishing",
+    "action": "mvn publish"
+  },
+  {
+    "name": "npmpublish",
+    "usage": "publishing",
+    "action": "npm publish"
+  },
+  {
+    "name": "npminstall",
+    "usage": "installing",
+    "action": "npm install"
+  }
+]
